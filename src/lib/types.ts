@@ -54,3 +54,24 @@ export interface ChatMessage {
 }
 
 export type AppStep = 'login' | 'signup' | 'role' | 'categories' | 'searching' | 'matched' | 'chatting';
+
+export interface Conversation {
+	id: string;
+	participantName: string;
+	participantId: string;
+	category: string;
+	categoryIcon: string;
+	lastMessage: string;
+	lastMessageTime: string;
+	unreadCount: number;
+	online: boolean;
+}
+
+export interface MessengerMessage {
+	id: string;
+	senderId: string;
+	senderName: string;
+	text: string;
+	timestamp: Date;
+	isMe: boolean;
+}

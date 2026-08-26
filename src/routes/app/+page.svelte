@@ -50,6 +50,7 @@
 					{#if queue.isAdmin}
 						<a class="admin-link" href="/dashboard" title="Admin dashboard">🛡️ Admin Dashboard</a>
 					{/if}
+					<a class="messages-icon-btn" href="/messages" title="Messages">💬</a>
 					<a class="user-chip" href="/profile" title="View profile">
 						<div class="user-avatar">{initials(queue.user.name)}</div>
 						<span class="user-name">{queue.user.name}</span>
@@ -229,6 +230,28 @@
 		border-color: rgba(255, 215, 0, 0.6);
 		background: rgba(255, 215, 0, 0.14);
 		box-shadow: var(--shadow-glow);
+	}
+
+	.messages-icon-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.05rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		text-decoration: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.messages-icon-btn:hover {
+		border-color: rgba(91, 140, 255, 0.5);
+		background: rgba(91, 140, 255, 0.1);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 14px -4px rgba(91, 140, 255, 0.35);
 	}
 
 	.logout-btn {
