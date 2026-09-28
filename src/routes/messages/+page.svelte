@@ -3,11 +3,14 @@
 	import { messages } from '$lib/stores/messages.svelte';
 	import ConversationList from '$lib/components/ConversationList.svelte';
 	import MessengerChat from '$lib/components/MessengerChat.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { initials } from '$lib/utils';
 
 	const user = $derived($page.data.session?.user);
 
 	$effect(() => {
+		// Needed so the store can tell your own messages apart from the other side's.
+		messages.currentUserId = user?.id ?? null;
 		messages.loadConversations();
 	});
 </script>
@@ -30,6 +33,10 @@
 					<span class="tab-icon">💬</span>
 					Messages
 				</a>
+				<a href="/freelancers" class="nav-tab">
+					<span class="tab-icon">🧑‍💻</span>
+					Freelancers
+				</a>
 				<a href="/app" class="nav-tab">
 					<span class="tab-icon">🏠</span>
 					Home
@@ -41,6 +48,7 @@
 			</div>
 
 			<div class="nav-user">
+				<NotificationBell />
 				{#if user}
 					<div class="nav-avatar">
 						{initials(user.user_metadata?.name ?? user.email ?? 'U')}

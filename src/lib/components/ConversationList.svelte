@@ -49,9 +49,13 @@
 					onclick={() => selectConversation(conv.id)}
 				>
 					<div class="conv-avatar-wrap">
-						<div class="conv-avatar">
-							{initials(conv.participantName)}
-						</div>
+						{#if conv.participantAvatar}
+							<img class="conv-avatar conv-avatar-img" src={conv.participantAvatar} alt={conv.participantName} />
+						{:else}
+							<div class="conv-avatar">
+								{initials(conv.participantName)}
+							</div>
+						{/if}
 						{#if conv.online}
 							<span class="online-dot"></span>
 						{/if}
@@ -191,6 +195,10 @@
 		font-size: 0.9rem;
 		font-weight: 700;
 		font-family: var(--font-display);
+	}
+
+	.conv-avatar-img {
+		object-fit: cover;
 	}
 
 	.conversation-item.unread .conv-avatar {

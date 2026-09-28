@@ -16,7 +16,7 @@ async function countRows(query: any): Promise<number> {
  */
 export async function loadAdminStats(supabase: SupabaseClient): Promise<AdminStats> {
 	const [
-		totalUsers,
+		profileCount,
 		clients,
 		freelancers,
 		totalMatches,
@@ -34,6 +34,11 @@ export async function loadAdminStats(supabase: SupabaseClient): Promise<AdminSta
 		countRows(supabase.from('queue_entries').select('*', { count: 'exact', head: true }).eq('status', 'waiting')),
 		countRows(supabase.from('categories').select('*', { count: 'exact', head: true }).eq('status', 'pending'))
 	]);
+
+	// Real signup count straight from auth.users (admins only, via SECURITY
+	// DEFINER). Falls back to the profile count before migration 005 is applied.
+	const { data: authUsers, error: authUsersError } = await supabase.rpc('admin_user_count');
+	const totalUsers = !authUsersError && authUsers != null ? Number(authUsers) : profileCount;
 
 	const { data: recentMatches } = await supabase
 		.from('matches')

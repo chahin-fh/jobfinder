@@ -8,6 +8,7 @@
 	import QueueSearch from '$lib/components/QueueSearch.svelte';
 	import MatchFound from '$lib/components/MatchFound.svelte';
 	import ChatInterface from '$lib/components/ChatInterface.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { initials } from '$lib/utils';
 
 	$effect(() => {
@@ -51,6 +52,8 @@
 						<a class="admin-link" href="/dashboard" title="Admin dashboard">🛡️ Admin Dashboard</a>
 					{/if}
 					<a class="messages-icon-btn" href="/messages" title="Messages">💬</a>
+					<a class="messages-icon-btn" href="/freelancers" title="Browse freelancers">🧑‍💻</a>
+					<NotificationBell />
 					<a class="user-chip" href="/profile" title="View profile">
 						<div class="user-avatar">{initials(queue.user.name)}</div>
 						<span class="user-name">{queue.user.name}</span>

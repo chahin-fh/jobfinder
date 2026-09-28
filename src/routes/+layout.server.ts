@@ -1,15 +1,15 @@
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
-	const session = await locals.getSession();
+	const { session, user } = await locals.safeGetSession();
 
 	let isAdmin = false;
-	if (session?.user) {
+	if (user) {
 		try {
 			const { data } = await locals.supabase
 				.from('profiles')
 				.select('is_admin')
-				.eq('id', session.user.id)
+				.eq('id', user.id)
 				.maybeSingle();
 			isAdmin = data?.is_admin === true;
 		} catch {
@@ -19,6 +19,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 
 	return {
 		session,
+		user,
 		isAdmin
 	};
 };

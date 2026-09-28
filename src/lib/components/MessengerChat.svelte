@@ -1,23 +1,28 @@
 <script lang="ts">
 	import { messages } from '$lib/stores/messages.svelte';
 	import { initials } from '$lib/utils';
+	import EngagementPanel from '$lib/components/EngagementPanel.svelte';
+	import ReviewForm from '$lib/components/ReviewForm.svelte';
 	import { tick } from 'svelte';
 
 	let inputText = $state('');
 	let messagesEl: HTMLDivElement | null = $state(null);
-	let isTyping = $state(false);
+	let showDetails = $state(false);
+	let detailsInitialised = $state(false);
 
 	const conversation = $derived(messages.activeConversation);
+
+	// Keep the terms open until the engagement has been agreed by both sides.
+	$effect(() => {
+		if (detailsInitialised || !conversation) return;
+		showDetails = conversation.status !== 'confirmed';
+		detailsInitialised = true;
+	});
 
 	function handleSend() {
 		if (!inputText.trim()) return;
 		messages.sendMessage(inputText);
 		inputText = '';
-		isTyping = true;
-		// Simulate "typing" indicator then reply
-		setTimeout(() => {
-			isTyping = false;
-		}, 2000);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -89,11 +94,28 @@
 			</div>
 
 			<div class="header-actions">
-				<button class="action-btn" aria-label="Voice call">📞</button>
-				<button class="action-btn" aria-label="Video call">📹</button>
-				<button class="action-btn" aria-label="Info">ℹ️</button>
+				<button
+					class="action-btn"
+					class:action-active={showDetails}
+					aria-label="Engagement terms"
+					onclick={() => (showDetails = !showDetails)}
+				>
+					📝
+				</button>
 			</div>
 		</div>
+
+		{#if showDetails}
+			<div class="details">
+				<EngagementPanel
+					matchId={conversation.id}
+					onStatusChange={(status) => messages.setConversationStatus(conversation.id, status)}
+				/>
+				{#if conversation.status === 'confirmed'}
+					<ReviewForm matchId={conversation.id} partnerName={conversation.participantName} />
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Messages Area -->
 		<div class="messages-area" bind:this={messagesEl}>
@@ -120,22 +142,6 @@
 				</div>
 			{/each}
 
-			{#if isTyping}
-				<div class="message-row received">
-					<div class="msg-avatar">
-						{initials(conversation.participantName)}
-					</div>
-					<div class="msg-content">
-						<div class="msg-bubble received-bubble typing-bubble">
-							<div class="typing-dots">
-								<span class="dot"></span>
-								<span class="dot"></span>
-								<span class="dot"></span>
-							</div>
-						</div>
-					</div>
-				</div>
-			{/if}
 		</div>
 
 		<!-- Input Area -->
@@ -314,6 +320,19 @@
 		border-color: rgba(91, 140, 255, 0.4);
 	}
 
+	.action-btn.action-active {
+		border-color: rgba(255, 215, 0, 0.45);
+		background: rgba(255, 215, 0, 0.1);
+	}
+
+	.details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 0.9rem 1.25rem 0;
+		flex-shrink: 0;
+	}
+
 	/* Messages Area */
 	.messages-area {
 		flex: 1;
@@ -427,33 +446,6 @@
 
 	.time-sent {
 		text-align: right;
-	}
-
-	/* Typing indicator */
-	.typing-bubble {
-		padding: 0.6rem 1rem;
-	}
-
-	.typing-dots {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: var(--text-3);
-		animation: typing 1.2s infinite;
-	}
-
-	.dot:nth-child(2) {
-		animation-delay: 0.15s;
-	}
-
-	.dot:nth-child(3) {
-		animation-delay: 0.3s;
 	}
 
 	/* Input Area */
@@ -597,11 +589,6 @@
 	@keyframes msgIn {
 		from { opacity: 0; transform: translateY(8px); }
 		to { opacity: 1; transform: translateY(0); }
-	}
-
-	@keyframes typing {
-		0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-		30% { opacity: 1; transform: translateY(-3px); }
 	}
 
 	@keyframes fadeIn {

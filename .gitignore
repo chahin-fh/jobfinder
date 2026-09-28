@@ -31,5 +31,3 @@ vite.config.ts.timestamp-*
 .idea/
 *.swp
 *.swo
-
-DB PASS

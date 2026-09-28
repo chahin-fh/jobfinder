@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { queue } from '$lib/stores/queue.svelte';
+	import { subscribeToInserts } from '$lib/realtime';
+	import EngagementPanel from '$lib/components/EngagementPanel.svelte';
 	import { tick } from 'svelte';
 
 	let inputText = $state('');
-	let confirming = $state(false);
+	let showTerms = $state(false);
 	let messagesEl: HTMLDivElement | null = $state(null);
 
 	function handleSend() {
@@ -23,24 +25,30 @@
 		return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
-	async function confirmJob() {
-		if (!queue.matchResult || confirming) return;
-		confirming = true;
-		try {
-			const res = await fetch(`/api/matches/${queue.matchResult.chatId}/confirm`, {
-				method: 'POST'
-			});
-			if (res.ok) {
-				queue.sendMessage('✓ Job confirmed! Let\'s get started.');
-			} else {
-				queue.sendMessage('✓ Job confirmed!');
+	// Live messages: no refresh needed when the partner replies.
+	$effect(() => {
+		const matchId = queue.matchResult?.chatId;
+		if (!matchId) return;
+
+		const unsubscribe = subscribeToInserts<any>(
+			'chat_messages',
+			`match_id=eq.${matchId}`,
+			(row) => {
+				if (queue.messages.some((m) => m.id === row.id)) return;
+				queue.messages = [
+					...queue.messages,
+					{
+						id: row.id,
+						sender: row.sender_id === queue.user?.id ? 'me' : 'them',
+						text: row.text,
+						timestamp: new Date(row.created_at)
+					}
+				];
 			}
-		} catch {
-			queue.sendMessage('✓ Job confirmed!');
-		} finally {
-			confirming = false;
-		}
-	}
+		);
+
+		return () => unsubscribe();
+	});
 
 	$effect(() => {
 		// react to message list changes then scroll
@@ -61,7 +69,7 @@
 		<div class="header-info">
 			<div class="header-avatar-wrap">
 				<div class="header-avatar">
-					{queue.matchResult?.matchedName.charAt(0).toUpperCase()}
+					{(queue.matchResult?.matchedName ?? '?').charAt(0).toUpperCase()}
 				</div>
 				<span class="online-dot"></span>
 			</div>
@@ -73,14 +81,16 @@
 			</div>
 		</div>
 
-		<button
-			class="confirm-btn"
-			disabled={confirming}
-			onclick={confirmJob}
-		>
-			{confirming ? 'Confirming…' : '✓ Confirm Job'}
+		<button class="confirm-btn" onclick={() => (showTerms = !showTerms)}>
+			{showTerms ? 'Hide terms' : '📝 Terms'}
 		</button>
 	</div>
+
+	{#if showTerms}
+		<div class="terms-wrap">
+			<EngagementPanel matchId={queue.matchResult?.chatId ?? ''} />
+		</div>
+	{/if}
 
 	<div class="messages-container" bind:this={messagesEl}>
 		{#each queue.messages as message (message.id)}
@@ -260,6 +270,10 @@
 	.confirm-btn:hover {
 		transform: translateY(-1px);
 		box-shadow: 0 8px 24px -6px rgba(52, 211, 153, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+	}
+
+	.terms-wrap {
+		padding: 0.9rem 1rem 0;
 	}
 
 	.messages-container {

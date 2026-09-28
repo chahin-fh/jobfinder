@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { createClient } from '$lib/supabase';
 	import { initials, iconChoices } from '$lib/utils';
 
 	// ============================================================
@@ -54,6 +55,7 @@
 		skills: Skill[];
 		portfolio: Project[];
 		reviews: Review[];
+		avatar_url: string | null;
 		memberSince?: string;
 	}
 
@@ -73,7 +75,8 @@
 			{ name: 'UI / UX Design', icon: '🎨', level: 75 }
 		],
 		portfolio: [],
-		reviews: []
+		reviews: [],
+		avatar_url: null
 	};
 
 	// ---------- State ----------
@@ -84,6 +87,7 @@
 	let loadError = $state('');
 	let editing = $state(false);
 	let saving = $state(false);
+	let uploading = $state(false);
 	let saveError = $state('');
 	let toast = $state('');
 	let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -151,6 +155,7 @@
 				responseTime: p.response_time || '1h',
 				rating
 			},
+			avatar_url: typeof p.avatar_url === 'string' ? p.avatar_url : null,
 			languages: Array.isArray(p.languages) ? p.languages : [],
 			skills: Array.isArray(p.skills) ? p.skills : [],
 			portfolio: Array.isArray(p.portfolio) ? p.portfolio : [],
@@ -258,17 +263,48 @@
 		draft.portfolio = draft.portfolio.filter((_, idx) => idx !== i);
 	}
 
-	function addReview() {
-		if (!draft) return;
-		draft.reviews = [
-			...draft.reviews,
-			{ reviewerName: '', reviewerRole: '', rating: 5, date: '', text: '' }
-		];
-	}
+	// ---------- Avatar ----------
 
-	function removeReview(i: number) {
-		if (!draft) return;
-		draft.reviews = draft.reviews.filter((_, idx) => idx !== i);
+	async function uploadAvatar(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file || !draft) return;
+
+		const userId = $page.data.session?.user?.id;
+		if (!userId) {
+			saveError = 'Please sign in again to upload a photo.';
+			return;
+		}
+
+		if (file.size > 2 * 1024 * 1024) {
+			saveError = 'Please choose an image smaller than 2 MB.';
+			return;
+		}
+
+		uploading = true;
+		saveError = '';
+
+		try {
+			const supabase = createClient();
+			const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+			// The storage policy only allows writes inside <user-id>/…
+			const path = `${userId}/avatar-${Date.now()}.${ext}`;
+
+			const { error } = await supabase.storage.from('avatars').upload(path, file, {
+				upsert: true,
+				contentType: file.type
+			});
+			if (error) throw new Error(error.message);
+
+			const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+			draft.avatar_url = data.publicUrl;
+			showToast('Photo ready — save to apply');
+		} catch (err) {
+			saveError = err instanceof Error ? err.message : 'Could not upload that image.';
+		} finally {
+			uploading = false;
+			input.value = '';
+		}
 	}
 
 	// ---------- Misc ----------
@@ -320,9 +356,28 @@
 
 			<div class="hero-body">
 				<div class="avatar-wrap">
-					<div class="avatar">{initials(profile.name)}</div>
+					{#if editing ? draft?.avatar_url : profile.avatar_url}
+						<img
+							class="avatar avatar-img"
+							src={editing ? (draft?.avatar_url ?? '') : (profile.avatar_url ?? '')}
+							alt={profile.name}
+						/>
+					{:else}
+						<div class="avatar">{initials(profile.name)}</div>
+					{/if}
 					{#if profile.verified}
 						<span class="verified-badge" title="Verified">✓</span>
+					{/if}
+					{#if editing}
+						<label class="avatar-upload" title="Upload a photo">
+							<input
+								type="file"
+								accept="image/png,image/jpeg,image/webp,image/gif"
+								onchange={uploadAvatar}
+								disabled={uploading}
+							/>
+							<span>{uploading ? 'Uploading…' : '📷 Photo'}</span>
+						</label>
 					{/if}
 				</div>
 
@@ -467,29 +522,10 @@
 							<span class="field-label">Bio</span>
 							<textarea class="bio-input" bind:value={draft.bio} rows="4" maxlength="600"></textarea>
 						</label>
-						<label class="switch-row">
-							<input type="checkbox" bind:checked={draft.verified} />
-							<span class="switch-track"><span class="switch-thumb"></span></span>
-							<span class="switch-label">Verified badge ✓ <small>shown next to your name</small></span>
-						</label>
-					</div>
-				</div>
-
-				<div class="builder-section">
-					<h3 class="b-section-title">Stats</h3>
-					<div class="b-grid b-grid--3">
-						<label class="edit-field">
-							<span class="field-label">Jobs Done</span>
-							<input type="number" bind:value={draft.stats.jobs} min="0" />
-						</label>
-						<label class="edit-field">
-							<span class="field-label">Success Rate %</span>
-							<input type="number" bind:value={draft.stats.successRate} min="0" max="100" />
-						</label>
-						<label class="edit-field">
-							<span class="field-label">Response Time</span>
-							<input type="text" bind:value={draft.stats.responseTime} maxlength="10" />
-						</label>
+						<p class="b-note">
+							Your <strong>verified badge</strong>, job count and rating are set by JobFinder from real
+							activity — they can't be edited here.
+						</p>
 					</div>
 				</div>
 
@@ -502,7 +538,7 @@
 						<p class="b-empty">No skills yet — add your first one.</p>
 					{:else}
 						<div class="b-list">
-							{#each draft.skills as skill, i (i)}
+							{#each draft.skills as _skill, i (i)}
 								<div class="b-item">
 									<select class="b-icon" bind:value={draft.skills[i].icon}>
 										{#each iconChoices as ic}
@@ -528,7 +564,7 @@
 						<p class="b-empty">No languages yet.</p>
 					{:else}
 						<div class="lang-chips">
-							{#each draft.languages as lang, i (i)}
+							{#each draft.languages as _lang, i (i)}
 								<span class="lang-chip">
 									<input type="text" bind:value={draft.languages[i]} placeholder="e.g. Spanish — Fluent" maxlength="40" />
 									<button class="chip-remove" aria-label="Remove language" onclick={() => removeLanguage(i)}>✕</button>
@@ -547,7 +583,7 @@
 						<p class="b-empty">No projects yet — showcase your work.</p>
 					{:else}
 						<div class="b-list">
-							{#each draft.portfolio as project, i (i)}
+							{#each draft.portfolio as _project, i (i)}
 								<div class="b-item b-item--project">
 									<select class="b-icon" bind:value={draft.portfolio[i].icon}>
 										{#each iconChoices as ic}
@@ -570,36 +606,11 @@
 				</div>
 
 				<div class="builder-section">
-					<div class="b-section-head">
-						<h3 class="b-section-title">Reviews</h3>
-						<button class="btn btn-add" onclick={addReview}>＋ Add review</button>
-					</div>
-					{#if draft.reviews.length === 0}
-						<p class="b-empty">No reviews yet.</p>
-					{:else}
-						<div class="b-list">
-							{#each draft.reviews as review, i (i)}
-								<div class="b-item b-item--review">
-									<div class="b-project-fields">
-										<div class="b-project-row">
-											<input class="b-name" type="text" bind:value={draft.reviews[i].reviewerName} placeholder="Reviewer name" maxlength="40" />
-											<input class="b-cat" type="text" bind:value={draft.reviews[i].reviewerRole} placeholder="Their role" maxlength="40" />
-											<input class="b-year" type="text" bind:value={draft.reviews[i].date} placeholder="Date" maxlength="12" />
-										</div>
-										<div class="b-review-row">
-											<select class="b-rating" bind:value={draft.reviews[i].rating}>
-												{#each [5, 4, 3, 2, 1] as n}
-													<option value={n}>{'★'.repeat(n)}{'☆'.repeat(5 - n)}</option>
-												{/each}
-											</select>
-											<input class="b-blurb" type="text" bind:value={draft.reviews[i].text} placeholder="Review text" maxlength="400" />
-										</div>
-									</div>
-									<button class="b-remove" aria-label="Remove review" onclick={() => removeReview(i)}>✕</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
+					<h3 class="b-section-title">Reviews</h3>
+					<p class="b-empty">
+						Reviews come from your matched partners once an engagement is confirmed — they're
+						published here automatically.
+					</p>
 				</div>
 
 				<div class="builder-actions">
@@ -884,6 +895,52 @@
 		color: var(--gold);
 	}
 
+	.avatar-img {
+		object-fit: cover;
+		background: #0a0f1e;
+	}
+
+	.avatar-upload {
+		position: absolute;
+		bottom: -6px;
+		left: 50%;
+		transform: translateX(-50%);
+		cursor: pointer;
+	}
+
+	.avatar-upload input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.avatar-upload span {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 26px;
+		padding: 0 0.75rem;
+		border-radius: 999px;
+		background: rgba(10, 15, 30, 0.94);
+		border: 1px solid var(--border-strong);
+		color: var(--text);
+		font-size: 0.7rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.b-note {
+		font-size: 0.8rem;
+		color: var(--text-3);
+		line-height: 1.55;
+	}
+
+	.b-note strong {
+		color: var(--text-2);
+	}
+
 	.verified-badge {
 		position: absolute;
 		bottom: 4px;
@@ -1148,69 +1205,6 @@
 	.bio-input {
 		resize: vertical;
 		line-height: 1.5;
-	}
-
-	.switch-row {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.7rem;
-		cursor: pointer;
-		width: fit-content;
-	}
-
-	.switch-row input {
-		position: absolute;
-		opacity: 0;
-		pointer-events: none;
-	}
-
-	.switch-track {
-		position: relative;
-		width: 42px;
-		height: 24px;
-		border-radius: 999px;
-		background: rgba(6, 10, 23, 0.8);
-		border: 1px solid var(--border-strong);
-		transition: background 0.25s ease, border-color 0.25s ease;
-		flex-shrink: 0;
-	}
-
-	.switch-thumb {
-		position: absolute;
-		top: 2px;
-		left: 2px;
-		width: 18px;
-		height: 18px;
-		border-radius: 50%;
-		background: var(--text-3);
-		transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease;
-	}
-
-	.switch-row input:checked + .switch-track {
-		background: linear-gradient(135deg, #34d399, #10b981);
-		border-color: transparent;
-	}
-
-	.switch-row input:checked + .switch-track .switch-thumb {
-		transform: translateX(18px);
-		background: #04110c;
-	}
-
-	.switch-row input:focus-visible + .switch-track {
-		box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
-	}
-
-	.switch-label {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--text);
-	}
-
-	.switch-label small {
-		display: block;
-		font-weight: 400;
-		font-size: 0.72rem;
-		color: var(--text-3);
 	}
 
 	.segmented {

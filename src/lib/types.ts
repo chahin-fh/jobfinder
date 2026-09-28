@@ -59,10 +59,14 @@ export interface Conversation {
 	id: string;
 	participantName: string;
 	participantId: string;
+	participantAvatar?: string | null;
 	category: string;
 	categoryIcon: string;
+	/** Match status: chatting | confirmed | cancelled */
+	status?: string;
 	lastMessage: string;
 	lastMessageTime: string;
+	lastMessageAt?: string | null;
 	unreadCount: number;
 	online: boolean;
 }
@@ -74,4 +78,29 @@ export interface MessengerMessage {
 	text: string;
 	timestamp: Date;
 	isMe: boolean;
+}
+
+/** The agreed scope/amount record for a match (no money movement yet). */
+export interface Engagement {
+	id: string;
+	match_id: string;
+	scope: string;
+	amount: number;
+	currency: string;
+	status: 'proposed' | 'agreed' | 'cancelled';
+	created_by: string | null;
+	agreed_by_client_at: string | null;
+	agreed_by_freelancer_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface AppNotification {
+	id: string;
+	kind: string;
+	title: string;
+	body: string;
+	link: string;
+	read_at: string | null;
+	created_at: string;
 }

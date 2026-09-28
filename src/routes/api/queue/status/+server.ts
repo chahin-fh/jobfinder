@@ -1,26 +1,23 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { requireUser, unauthorized } from '$lib/server/auth';
 
 export async function GET(event: RequestEvent) {
-	const supabase = event.locals.supabase;
-
-	const {
-		data: { session }
-	} = await supabase.auth.getSession();
-
-	if (!session) {
-		return json({ error: 'Not authenticated' }, { status: 401 });
-	}
+	const auth = await requireUser(event);
+	if (!auth) return unauthorized();
+	const { supabase, user } = auth;
 
 	const { data, error } = await supabase
 		.from('queue_entries')
-		.select('*, profiles!inner(name)')
-		.eq('user_id', session.user.id)
+		.select('id, role, category_ids, status, created_at, expires_at')
+		.eq('user_id', user.id)
 		.eq('status', 'waiting')
-		.single();
+		.order('created_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
 
-	if (error && error.code !== 'PGRST116') {
+	if (error) {
 		return json({ error: error.message }, { status: 500 });
 	}
 
-	return json({ inQueue: !!data, queueEntry: data });
+	return json({ inQueue: !!data, queueEntry: data ?? null });
 }

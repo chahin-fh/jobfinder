@@ -1,10 +1,47 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { invalidateAll } from '$app/navigation';
 	import { queue } from '$lib/stores/queue.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { categories as popularCategories } from '$lib/data/categories';
 	import type { Category } from '$lib/types';
 	import { initials } from '$lib/utils';
+
+	const sectionLinks = [
+		{ id: 'roles', label: "Who it's for", letter: 'R' },
+		{ id: 'how-it-works', label: 'How it works', letter: 'H' },
+		{ id: 'features', label: 'Why JobFinder', letter: 'F' },
+		{ id: 'testimonials', label: 'Testimonials', letter: 'T' },
+		{ id: 'categories', label: 'Categories', letter: 'C' },
+		{ id: 'faq', label: 'FAQ', letter: 'Q' }
+	];
+	let activeSection = $state(sectionLinks[0].id);
+
+	onMount(() => {
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const visibleSections = entries.filter((entry) => entry.isIntersecting);
+				if (visibleSections.length === 0) return;
+				const viewportCenter = window.innerHeight / 2;
+				const current = visibleSections.reduce((closest, entry) =>
+					Math.abs(entry.boundingClientRect.top - viewportCenter) <
+					Math.abs(closest.boundingClientRect.top - viewportCenter)
+						? entry
+						: closest
+				);
+				activeSection = current.target.id;
+			},
+			{ rootMargin: '-35% 0px -50% 0px', threshold: 0 }
+		);
+
+		for (const section of sectionLinks) {
+			const element = document.getElementById(section.id);
+			if (element) observer.observe(element);
+		}
+
+		return () => observer.disconnect();
+	});
 
 	$effect(() => {
 		const session = $page.data.session;
@@ -210,19 +247,14 @@
 					<span class="logo-tag">match · connect · grow</span>
 				</div>
 			</a>
-
-			<nav class="nav-links">
-				<a href="#roles">For clients & freelancers</a>
-				<a href="#how-it-works">How it works</a>
-				<a href="#categories">Categories</a>
-				<a href="#faq">FAQ</a>
-			</nav>
-
 			<div class="header-right">
 				{#if queue.user}
 					{#if queue.isAdmin}
 						<a class="admin-link" href="/dashboard">🛡️ Admin</a>
 					{/if}
+					<NotificationBell />
+					<a class="messages-icon-btn" href="/messages" title="Messages">💬</a>
+					<a class="messages-icon-btn" href="/freelancers" title="Browse freelancers">🧑‍💻</a>
 					<a class="user-chip" href="/profile" title="View profile">
 						<div class="user-avatar">{initials(queue.user.name)}</div>
 						<span class="user-name">{queue.user.name}</span>
@@ -235,6 +267,21 @@
 			</div>
 		</div>
 	</header>
+
+	<nav class="section-index" aria-label="Page sections">
+		{#each sectionLinks as section}
+			<a
+				class="section-index-link"
+				class:active={activeSection === section.id}
+				href="#{section.id}"
+				aria-label={section.label}
+				aria-current={activeSection === section.id ? 'location' : undefined}
+			>
+				<span>{section.letter}</span>
+				<span class="section-index-tooltip" aria-hidden="true">{section.label}</span>
+			</a>
+		{/each}
+	</nav>
 
 	<main>
 		<!-- Hero -->
@@ -607,13 +654,52 @@
 		color: var(--text-3);
 	}
 
-	.nav-links {
+	.section-index {
+		position: fixed;
+		z-index: 40;
+		left: 0.8rem;
+		top: 50%;
+		transform: translateY(-50%);
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 1.75rem;
+		gap: 0.2rem;
+		padding: 0.45rem 0.3rem;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 999px;
+		background: rgba(6, 10, 23, 0.82);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
 	}
 
-	.nav-links a {
+	.section-index-link {
+		position: relative;
+		width: 1.8rem;
+		aspect-ratio: 1;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--text-3);
+		text-decoration: none;
+		font-size: 0.68rem;
+		font-weight: 700;
+		transition: color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+	}
+
+	.section-index-link:hover,
+	.section-index-link.active {
+		color: #101522;
+		background: var(--gold);
+		transform: scale(1.08);
+	}
+
+	.section-index-link:focus-visible {
+		outline: 2px solid var(--gold);
+		outline-offset: 2px;
+	}
+
+	.directory-link a {
 		color: var(--text-2);
 		text-decoration: none;
 		font-size: 0.88rem;
@@ -621,8 +707,34 @@
 		transition: color 0.2s ease;
 	}
 
-	.nav-links a:hover {
+	.directory-link a:hover {
 		color: var(--text);
+	}
+
+	.section-index-tooltip {
+		position: absolute;
+		left: calc(100% + 0.65rem);
+		top: 50%;
+		transform: translate(-0.25rem, -50%);
+		padding: 0.45rem 0.65rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: rgba(6, 10, 23, 0.96);
+		color: var(--text);
+		font-size: 0.75rem;
+		font-weight: 600;
+		white-space: nowrap;
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+		pointer-events: none;
+	}
+
+	.section-index-link:hover .section-index-tooltip,
+	.section-index-link:focus-visible .section-index-tooltip {
+		transform: translate(0, -50%);
+		opacity: 1;
+		visibility: visible;
 	}
 
 	.header-right {
@@ -1694,7 +1806,7 @@
 	/* ---------- Responsive ---------- */
 
 	@media (max-width: 960px) {
-		.nav-links {
+		.directory-link {
 			display: none;
 		}
 
@@ -1718,6 +1830,15 @@
 	}
 
 	@media (max-width: 600px) {
+		.section-index {
+			left: 0.2rem;
+			padding: 0.35rem 0.2rem;
+		}
+
+		.section-index-link {
+			width: 1.55rem;
+		}
+
 		.hero {
 			padding: 3.5rem 1rem 3.5rem;
 		}
@@ -1770,4 +1891,26 @@
 			gap: 1.25rem;
 		}
 	}
+	.messages-icon-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.05rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		text-decoration: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.messages-icon-btn:hover {
+		border-color: rgba(91, 140, 255, 0.5);
+		background: rgba(91, 140, 255, 0.1);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 14px -4px rgba(91, 140, 255, 0.35);
+	}
+
 </style>

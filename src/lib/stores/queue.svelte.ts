@@ -1,6 +1,17 @@
 import type { UserRole, AuthUser, MatchResult, ChatMessage, AppStep, Category } from '$lib/types';
 import { createClient } from '$lib/supabase';
+import { subscribeToInserts } from '$lib/realtime';
 import { categories as fallbackCategories } from '$lib/data/categories';
+
+interface MatchRow {
+	id: string;
+	client_id: string;
+	freelancer_id: string;
+	category: Category;
+	created_at: string;
+	client?: { id: string; name: string };
+	freelancer?: { id: string; name: string };
+}
 
 class QueueStore {
 	step = $state<AppStep>('login');
@@ -13,16 +24,22 @@ class QueueStore {
 	searchTime = $state(0);
 	categories = $state<Category[]>([]);
 	loading = $state(false);
+	error = $state('');
 
 	private searchTimer: ReturnType<typeof setInterval> | null = null;
-	private supabase = $state(createClient());
+	private _pollInterval: ReturnType<typeof setInterval> | null = null;
+	private realtimeUnsub: (() => void) | null = null;
+	private searchStartedAt = 0;
+	private supabase = createClient();
 
 	get selectedCategories() {
 		return this.categories.filter((c) => this.selectedCategoryIds.includes(c.id));
 	}
 
 	async initSession() {
-		const { data: { session } } = await this.supabase.auth.getSession();
+		const {
+			data: { session }
+		} = await this.supabase.auth.getSession();
 		if (session?.user) {
 			this.user = {
 				id: session.user.id,
@@ -53,7 +70,7 @@ class QueueStore {
 		const res = await fetch('/api/categories', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(input)
+			body: JSON.stringify({ ...input, role: this.role })
 		});
 
 		const data = await res.json();
@@ -84,8 +101,10 @@ class QueueStore {
 	async startSearch() {
 		if (this.selectedCategoryIds.length === 0 || !this.role) return;
 
+		this.error = '';
 		this.step = 'searching';
 		this.searchTime = 0;
+		this.searchStartedAt = Date.now();
 
 		this.searchTimer = setInterval(() => {
 			this.searchTime += 1;
@@ -101,89 +120,118 @@ class QueueStore {
 				})
 			});
 
-			const data = await res.json();
+			const data = await res.json().catch(() => ({}));
 
 			if (data.matched) {
 				this.foundMatch(data.match);
 				return;
 			}
 
-			// No immediate match - start actively polling for a match
-			this.pollForMatch();
-
-		} catch (err) {
-			// On connection error, still try to poll - the user may have been added
-			this.pollForMatch();
-		}
-	}
-
-	private async pollForMatch() {
-		// Actively try to match every 2 seconds by calling the match endpoint
-		const pollInterval = setInterval(async () => {
-			if (this.step !== 'searching') {
-				clearInterval(pollInterval);
+			// 409 means we were already queued by an earlier search, so keep waiting.
+			// Any other failure means we never joined the queue - polling would spin
+			// forever, so stop and tell the user what went wrong.
+			if (!res.ok && res.status !== 409) {
+				this.failSearch(data.error ?? 'Could not start the search. Please try again.');
 				return;
 			}
 
-			try {
-				// Actively try to find a match
-				const matchRes = await fetch('/api/queue/match', { method: 'POST' });
-				const matchData = await matchRes.json();
-
-				if (matchData.matched && matchData.match) {
-					if (this.searchTimer) clearInterval(this.searchTimer);
-					clearInterval(pollInterval);
-					this.matchResult = {
-						matchedUserId: matchData.match.matchedUserId,
-						matchedName: matchData.match.matchedName,
-						role: this.role === 'client' ? 'freelancer' : 'client',
-						category: matchData.match.category,
-						chatId: matchData.match.chatId
-					};
-					this.step = 'matched';
-					return;
-				}
-
-				// Also check if a match was created by the other user's client
-				const checkRes = await fetch('/api/matches');
-				const checkData = await checkRes.json();
-				if (checkData.matches && checkData.matches.length > 0) {
-					const match = checkData.matches[0];
-					const otherUser = match.client_id === this.user?.id
-						? match.freelancer : match.client;
-
-					if (this.searchTimer) clearInterval(this.searchTimer);
-					clearInterval(pollInterval);
-
-					this.matchResult = {
-						matchedUserId: otherUser?.id ?? '',
-						matchedName: otherUser?.name ?? 'User',
-						role: this.role === 'client' ? 'freelancer' : 'client',
-						category: match.category,
-						chatId: match.id
-					};
-					this.step = 'matched';
-				}
-			} catch { /* keep polling */ }
-		}, 2000);
-
-		// Store the interval so it can be cancelled
-		this._pollInterval = pollInterval;
+			this.beginPolling();
+		} catch {
+			this.failSearch('Could not reach the server. Check your connection and try again.');
+		}
 	}
 
-	private _pollInterval: ReturnType<typeof setInterval> | null = null;
+	/** Stops every timer/subscription and returns to the category picker. */
+	private failSearch(message: string) {
+		this.clearTimers();
+		this.error = message;
+		this.step = 'categories';
+	}
 
-	private foundMatch(matchData: any) {
+	private clearTimers() {
 		if (this.searchTimer) {
 			clearInterval(this.searchTimer);
 			this.searchTimer = null;
 		}
-
 		if (this._pollInterval) {
 			clearInterval(this._pollInterval);
 			this._pollInterval = null;
 		}
+		if (this.realtimeUnsub) {
+			this.realtimeUnsub();
+			this.realtimeUnsub = null;
+		}
+	}
 
+	/**
+	 * Polls the match endpoint (authoritative, creates the match atomically) and
+	 * also listens on Realtime so the other side's join is picked up instantly
+	 * instead of waiting for the next tick.
+	 */
+	private beginPolling() {
+		this._pollInterval = setInterval(() => {
+			if (this.step !== 'searching') {
+				this.clearTimers();
+				return;
+			}
+			void this.pollOnce();
+		}, 2000);
+
+		this.realtimeUnsub = subscribeToInserts<MatchRow>('matches', undefined, () => {
+			if (this.step === 'searching') void this.pollOnce();
+		});
+	}
+
+	private async pollOnce(): Promise<void> {
+		if (this.step !== 'searching') return;
+
+		try {
+			// Actively try to find a match.
+			const matchRes = await fetch('/api/queue/match', { method: 'POST' });
+			const matchData = await matchRes.json();
+
+			if (matchData.matched && matchData.match) {
+				this.foundMatch({
+					matchedUserId: matchData.match.matchedUserId,
+					matchedName: matchData.match.matchedName,
+					role: matchData.match.role,
+					category: matchData.match.category,
+					chatId: matchData.match.chatId
+				});
+				return;
+			}
+
+			// Also catch a match created by the other user's own search.
+			// Ignore matches that already existed when this search started,
+			// otherwise any past conversation would hijack a brand new search.
+			const checkRes = await fetch('/api/matches');
+			const checkData = await checkRes.json();
+
+			const fresh: MatchRow | undefined = Array.isArray(checkData.matches)
+				? checkData.matches.find(
+						(m: MatchRow) => new Date(m.created_at).getTime() >= this.searchStartedAt
+					)
+				: undefined;
+
+			if (!fresh) return;
+
+			const counterpart =
+				fresh.client_id === this.user?.id ? fresh.freelancer : fresh.client;
+
+			this.foundMatch({
+				matchedUserId: counterpart?.id ?? '',
+				matchedName: counterpart?.name ?? 'User',
+				role: this.role === 'client' ? 'freelancer' : 'client',
+				category: fresh.category,
+				chatId: fresh.id
+			});
+		} catch {
+			/* keep polling */
+		}
+	}
+
+	private foundMatch(matchData: MatchResult) {
+		this.clearTimers();
 		this.matchResult = matchData;
 		this.step = 'matched';
 	}
@@ -218,7 +266,9 @@ class QueueStore {
 							text: `Hello! I'm interested in your project for ${result.category.name}. Let's discuss the details!`
 						})
 					});
-				} catch { /* ignore */ }
+				} catch {
+					/* ignore */
+				}
 			}, 500);
 		}
 	}
@@ -259,21 +309,17 @@ class QueueStore {
 	}
 
 	async cancelSearch() {
-		if (this.searchTimer) {
-			clearInterval(this.searchTimer);
-			this.searchTimer = null;
-		}
-		if (this._pollInterval) {
-			clearInterval(this._pollInterval);
-			this._pollInterval = null;
-		}
+		this.clearTimers();
 		try {
 			await fetch('/api/queue/leave', { method: 'POST' });
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		this.step = 'categories';
 	}
 
 	async logout() {
+		this.clearTimers();
 		await this.supabase.auth.signOut();
 		this.user = null;
 		this.isAdmin = false;
@@ -283,6 +329,7 @@ class QueueStore {
 		this.matchResult = null;
 		this.messages = [];
 		this.searchTime = 0;
+		this.error = '';
 	}
 
 	goToSignup() {
@@ -294,20 +341,14 @@ class QueueStore {
 	}
 
 	reset() {
-		if (this.searchTimer) {
-			clearInterval(this.searchTimer);
-			this.searchTimer = null;
-		}
-		if (this._pollInterval) {
-			clearInterval(this._pollInterval);
-			this._pollInterval = null;
-		}
+		this.clearTimers();
 		this.step = 'role';
 		this.role = null;
 		this.selectedCategoryIds = [];
 		this.matchResult = null;
 		this.messages = [];
 		this.searchTime = 0;
+		this.error = '';
 	}
 }
 

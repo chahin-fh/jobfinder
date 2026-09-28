@@ -84,6 +84,13 @@
 		</button>
 	</div>
 
+	{#if queue.error}
+		<div class="error-banner">
+			<span>⚠ {queue.error}</span>
+			<button class="notice-close" onclick={() => (queue.error = '')}>✕</button>
+		</div>
+	{/if}
+
 	{#if notice}
 			<div class="notice-banner">
 				<span>{notice}</span>
@@ -412,6 +419,22 @@
 		border: 1px solid rgba(255, 93, 115, 0.28);
 		padding: 0.6rem 0.9rem;
 		border-radius: var(--radius-sm);
+	}
+
+	.error-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		max-width: 500px;
+		margin: 0 auto 1.5rem;
+		background: rgba(255, 93, 115, 0.08);
+		border: 1px solid rgba(255, 93, 115, 0.3);
+		color: #ff8fa3;
+		font-size: 0.88rem;
+		padding: 0.7rem 1rem;
+		border-radius: var(--radius-sm);
+		animation: formIn 0.3s ease;
 	}
 
 	.notice-banner {

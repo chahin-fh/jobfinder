@@ -1,27 +1,25 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { requireUser, unauthorized } from '$lib/server/auth';
+import { firstRow, matchPayload, type TryMatchRow } from '$lib/server/matching';
 
 export async function POST(event: RequestEvent) {
-	const supabase = event.locals.supabase;
+	const auth = await requireUser(event);
+	if (!auth) return unauthorized();
+	const { supabase, user } = auth;
 
-	const {
-		data: { session }
-	} = await supabase.auth.getSession();
+	const body = await event.request.json().catch(() => ({}));
+	const role = body.role === 'client' || body.role === 'freelancer' ? body.role : null;
+	const categoryIds: unknown = body.category_ids;
 
-	if (!session) {
-		return json({ error: 'Not authenticated' }, { status: 401 });
-	}
-
-	const { role, category_ids } = await event.request.json();
-
-	if (!role || !category_ids || category_ids.length === 0) {
+	if (!role || !Array.isArray(categoryIds) || categoryIds.length === 0) {
 		return json({ error: 'Role and category_ids are required' }, { status: 400 });
 	}
 
-	// Create or update profile
+	// Keep the stored profile in sync with the role the user just picked.
 	const { error: profileError } = await supabase.from('profiles').upsert(
 		{
-			id: session.user.id,
-			name: session.user.user_metadata.name ?? session.user.email?.split('@')[0] ?? 'User',
+			id: user.id,
+			name: user.user_metadata?.name ?? user.email?.split('@')[0] ?? 'User',
 			role
 		},
 		{ onConflict: 'id' }
@@ -31,25 +29,23 @@ export async function POST(event: RequestEvent) {
 		return json({ error: profileError.message }, { status: 500 });
 	}
 
-	// Check if already in queue
-	const { data: existingQueue } = await supabase
+	const { data: existing } = await supabase
 		.from('queue_entries')
 		.select('id')
-		.eq('user_id', session.user.id)
+		.eq('user_id', user.id)
 		.eq('status', 'waiting')
-		.single();
+		.maybeSingle();
 
-	if (existingQueue) {
+	if (existing) {
 		return json({ error: 'Already in queue' }, { status: 409 });
 	}
 
-	// Add to queue
 	const { data: queueEntry, error: queueError } = await supabase
 		.from('queue_entries')
 		.insert({
-			user_id: session.user.id,
+			user_id: user.id,
 			role,
-			category_ids
+			category_ids: categoryIds
 		})
 		.select()
 		.single();
@@ -58,69 +54,22 @@ export async function POST(event: RequestEvent) {
 		return json({ error: queueError.message }, { status: 500 });
 	}
 
-	// Try to find a match
-	const { data: waitingEntries } = await supabase
-		.from('queue_entries')
-		.select('*')
-		.neq('user_id', session.user.id)
-		.eq('status', 'waiting')
-		.neq('role', role);
+	// All matching happens inside one atomic, server-side function: it respects
+	// RLS-safe privacy (no cross-user reads), skips locked rows and can't create
+	// a duplicate match for the same pair + category.
+	const { data: rows, error: matchError } = await supabase.rpc('try_match', {
+		p_user_id: user.id,
+		p_role: role,
+		p_category_ids: categoryIds
+	});
 
-	if (waitingEntries && waitingEntries.length > 0) {
-		for (const entry of waitingEntries) {
-			const overlappingCategories = entry.category_ids.filter((cid: string) =>
-				category_ids.includes(cid)
-			);
+	if (matchError) {
+		return json({ error: matchError.message }, { status: 500 });
+	}
 
-			if (overlappingCategories.length > 0) {
-				const matchedCategoryId = overlappingCategories[0];
-
-				const clientId = role === 'client' ? session.user.id : entry.user_id;
-				const freelancerId = role === 'freelancer' ? session.user.id : entry.user_id;
-
-				const { data: match, error: matchError } = await supabase
-					.from('matches')
-					.insert({
-						client_id: clientId,
-						freelancer_id: freelancerId,
-						category_id: matchedCategoryId
-					})
-					.select()
-					.single();
-
-				if (!matchError) {
-					await supabase
-						.from('queue_entries')
-						.update({ status: 'matched', matched_at: new Date().toISOString() })
-						.in('id', [queueEntry.id, entry.id]);
-
-					const matchedUserId = entry.user_id;
-					const { data: matchedProfile } = await supabase
-						.from('profiles')
-						.select('name')
-						.eq('id', matchedUserId)
-						.single();
-
-					const { data: category } = await supabase
-						.from('categories')
-						.select('*')
-						.eq('id', matchedCategoryId)
-						.single();
-
-					return json({
-						matched: true,
-						match: {
-							id: match.id,
-							matchedUserId,
-							matchedName: matchedProfile?.name ?? 'User',
-							role: entry.role,
-							category,
-							chatId: match.id
-						}
-					});
-				}
-			}
-		}
+	const matched = firstRow<TryMatchRow>(rows);
+	if (matched) {
+		return json({ matched: true, match: matchPayload(matched, role) });
 	}
 
 	return json({ matched: false, queueEntry });

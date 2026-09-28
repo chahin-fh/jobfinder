@@ -9,6 +9,7 @@
 	let confirmPassword = $state('');
 	let showPassword = $state(false);
 	let error = $state('');
+	let notice = $state('');
 	let loading = $state(false);
 
 	const supabase = createClient();
@@ -34,14 +35,19 @@
 			return;
 		}
 
-		if (data.user) {
+		if (data.session) {
 			queue.user = {
-				id: data.user.id,
+				id: data.user!.id,
 				name: name.trim(),
-				email: data.user.email!
+				email: data.user!.email!
 			};
 			await invalidateAll();
 			queue.step = 'role';
+		} else if (data.user) {
+			// Email confirmation is switched on: the account exists but there is no
+			// session yet. Entering the app would leave every API call at 401, so ask
+			// the user to confirm their email and sign in instead.
+			notice = 'Account created! Confirm your email address, then sign in to continue.';
 		}
 	}
 
@@ -66,6 +72,13 @@
 				<div class="auth-error">
 					<span class="error-dot">!</span>
 					{error}
+				</div>
+			{/if}
+
+			{#if notice}
+				<div class="auth-notice">
+					<span class="notice-dot">✓</span>
+					{notice}
 				</div>
 			{/if}
 
@@ -228,6 +241,33 @@
 	.auth-subtitle {
 		color: var(--text-2);
 		font-size: 0.93rem;
+	}
+
+	.auth-notice {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		background: rgba(52, 211, 153, 0.08);
+		border: 1px solid rgba(52, 211, 153, 0.3);
+		color: #7ee2b8;
+		padding: 0.7rem 1rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.85rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.notice-dot {
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: rgba(52, 211, 153, 0.2);
+		border: 1px solid rgba(52, 211, 153, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.7rem;
+		font-weight: 700;
 	}
 
 	.auth-error {

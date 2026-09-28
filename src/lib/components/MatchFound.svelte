@@ -12,7 +12,7 @@
 		<div class="burst"></div>
 		<div class="avatar-ring">
 			<div class="match-avatar">
-				{queue.matchResult?.matchedName.charAt(0).toUpperCase()}
+				{(queue.matchResult?.matchedName ?? '?').charAt(0).toUpperCase()}
 			</div>
 		</div>
 	</div>

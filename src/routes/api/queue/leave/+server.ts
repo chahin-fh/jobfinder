@@ -1,20 +1,15 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { requireUser, unauthorized } from '$lib/server/auth';
 
 export async function POST(event: RequestEvent) {
-	const supabase = event.locals.supabase;
-
-	const {
-		data: { session }
-	} = await supabase.auth.getSession();
-
-	if (!session) {
-		return json({ error: 'Not authenticated' }, { status: 401 });
-	}
+	const auth = await requireUser(event);
+	if (!auth) return unauthorized();
+	const { supabase, user } = auth;
 
 	const { error } = await supabase
 		.from('queue_entries')
 		.update({ status: 'cancelled' })
-		.eq('user_id', session.user.id)
+		.eq('user_id', user.id)
 		.eq('status', 'waiting');
 
 	if (error) {
