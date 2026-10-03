@@ -35,11 +35,12 @@ class MessagesStore {
 		);
 	}
 
-	async loadConversations() {
+	async loadConversations(matchId?: string) {
 		this.loading = true;
 		this.error = '';
 		try {
-			const res = await fetch('/api/messages');
+			const query = matchId ? `?match=${encodeURIComponent(matchId)}` : '';
+			const res = await fetch(`/api/messages${query}`);
 			const data = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(data.error ?? 'Could not load conversations');
 			this.conversations = data.conversations ?? [];
@@ -52,9 +53,13 @@ class MessagesStore {
 	}
 
 	async loadMessages(conversationId: string) {
+		this.unsubscribe?.();
+		this.unsubscribe = null;
 		this.activeConversationId = conversationId;
 		this.messages = [];
 		this.error = '';
+		const conversation = this.conversations.find((c) => c.id === conversationId);
+		if (conversation && conversation.status !== 'confirmed') return;
 
 		try {
 			const res = await fetch(`/api/matches/${conversationId}/messages`);
@@ -76,7 +81,19 @@ class MessagesStore {
 	/** `status` is refreshed by the engagement panel. */
 	setConversationStatus(conversationId: string, status: string) {
 		const conv = this.conversations.find((c) => c.id === conversationId);
-		if (conv) conv.status = status;
+		if (!conv) return;
+
+		const wasConfirmed = conv.status === 'confirmed';
+		conv.status = status;
+		if (this.activeConversationId === conversationId) {
+			if (status === 'confirmed' && !wasConfirmed) {
+				this.loadMessages(conversationId);
+			} else if (status !== 'confirmed' && wasConfirmed) {
+				this.unsubscribe?.();
+				this.unsubscribe = null;
+				this.messages = [];
+			}
+		}
 	}
 
 	private toMessage(m: RawMessage): MessengerMessage {
@@ -101,9 +118,19 @@ class MessagesStore {
 			'chat_messages',
 			`match_id=eq.${conversationId}`,
 			(row) => {
-				// The optimistic copy from sendMessage may already be here.
-				if (this.messages.some((m) => m.id === row.id)) return;
-				this.messages = [...this.messages, this.toMessage(row)];
+				const optimisticIndex = this.messages.findIndex(
+					(m) =>
+						m.id.startsWith('pending-') &&
+						m.senderId === row.sender_id &&
+						m.text === row.text
+				);
+				if (optimisticIndex >= 0) {
+					this.messages = this.messages.map((m, index) =>
+						index === optimisticIndex ? this.toMessage(row) : m
+					);
+				} else if (!this.messages.some((m) => m.id === row.id)) {
+					this.messages = [...this.messages, this.toMessage(row)];
+				}
 				if (this.activeConversationId === conversationId) this.markRead(conversationId);
 			}
 		);
@@ -125,6 +152,7 @@ class MessagesStore {
 		const trimmed = text.trim();
 		if (!trimmed || !this.activeConversationId) return;
 
+		this.error = '';
 		const conversationId = this.activeConversationId;
 
 		const optimistic: MessengerMessage = {

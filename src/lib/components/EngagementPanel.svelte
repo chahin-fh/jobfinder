@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { agreementState } from '$lib/engagement';
 	import { formatMoney } from '$lib/format';
 	import type { Engagement, UserRole } from '$lib/types';
@@ -68,7 +69,11 @@
 			engagement = data.engagement ?? null;
 			editing = false;
 
-			if (data.bothAgreed) onStatusChange?.('confirmed');
+			if (body.action === 'propose') onStatusChange?.('chatting');
+			if (data.bothAgreed) {
+				onStatusChange?.('confirmed');
+				await goto(`/messages?match=${encodeURIComponent(matchId)}`);
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not save the agreement';
 		} finally {

@@ -11,7 +11,18 @@
 	$effect(() => {
 		// Needed so the store can tell your own messages apart from the other side's.
 		messages.currentUserId = user?.id ?? null;
-		messages.loadConversations();
+		messages.loadConversations($page.url.searchParams.get('match') ?? undefined);
+	});
+
+	$effect(() => {
+		const matchId = $page.url.searchParams.get('match');
+		if (
+			matchId &&
+			messages.conversations.some((conversation) => conversation.id === matchId) &&
+			messages.activeConversationId !== matchId
+		) {
+			messages.setActiveConversation(matchId);
+		}
 	});
 </script>
 

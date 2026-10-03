@@ -55,6 +55,10 @@ Run the SQL files in the Supabase SQL editor, in order:
    over-permissive queue policy, adds the atomic `try_match()` function, the
    one-match-per-pair index, read receipts, engagements, reviews, notifications,
    avatars, the directory views and the `handle_new_user` profile trigger.
+6. `src/lib/server/migrations/006_fix_try_match_category_ambiguity.sql` — fixes
+  ambiguous `category_id` resolution in the matching function.
+7. `src/lib/server/migrations/007_engagement_proposal_notifications.sql` — alerts
+  the other participant when terms are proposed or updated.
 
 > Migration 005 deletes duplicate matches before adding the uniqueness index (it
 > cascades to their chat messages), so take a backup first if the database

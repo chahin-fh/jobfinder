@@ -61,7 +61,7 @@
 					{#each notifications.items as item (item.id)}
 						<button class="item" class:unread={!item.read_at} onclick={() => openItem(item)}>
 							<span class="item-icon">
-								{item.kind === 'message' ? '💬' : item.kind === 'match' ? '🤝' : item.kind === 'engagement' ? '✅' : '🔔'}
+								{item.kind === 'proposal' ? '📝' : item.kind === 'message' ? '💬' : item.kind === 'match' ? '🤝' : item.kind === 'engagement' ? '✅' : '🔔'}
 							</span>
 							<span class="item-body">
 								<span class="item-title">{item.title}</span>

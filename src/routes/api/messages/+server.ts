@@ -19,7 +19,10 @@ export async function GET(event: RequestEvent) {
 		return json({ error: error.message }, { status: 500 });
 	}
 
-	const rows = (matches ?? []) as any[];
+	const requestedMatchId = event.url.searchParams.get('match');
+	const rows = ((matches ?? []) as any[]).filter(
+		(match) => match.status === 'confirmed' || match.id === requestedMatchId
+	);
 	const matchIds = rows.map((m) => m.id);
 
 	const { data: readRows } = matchIds.length
@@ -78,7 +81,8 @@ export async function GET(event: RequestEvent) {
 			category: category?.name ?? 'General',
 			categoryIcon: category?.icon ?? '💬',
 			status: match.status,
-			lastMessage: last?.text ?? 'No messages yet',
+			lastMessage:
+				match.status === 'confirmed' ? (last?.text ?? 'No messages yet') : 'Review proposed terms',
 			lastMessageTime: relativeTime(last?.created_at),
 			lastMessageAt: last?.created_at ?? match.created_at,
 			unreadCount,

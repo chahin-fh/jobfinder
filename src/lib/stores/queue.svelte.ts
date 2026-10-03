@@ -274,37 +274,40 @@ class QueueStore {
 	}
 
 	async sendMessage(text: string) {
-		if (!text.trim() || !this.matchResult) return;
+		const trimmed = text.trim();
+		if (!trimmed || !this.matchResult) return;
+
+		const optimistic: ChatMessage = {
+			id: `pending-${crypto.randomUUID()}`,
+			sender: 'me',
+			text: trimmed,
+			timestamp: new Date()
+		};
+		this.error = '';
+		this.messages = [...this.messages, optimistic];
 
 		try {
 			const res = await fetch(`/api/matches/${this.matchResult.chatId}/messages`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ text: text.trim() })
+				body: JSON.stringify({ text: trimmed })
 			});
-			const data = await res.json();
-			if (data.message) {
-				this.messages = [
-					...this.messages,
-					{
-						id: data.message.id,
-						sender: 'me',
-						text: data.message.text,
-						timestamp: new Date(data.message.created_at)
-					}
-				];
-			}
-		} catch {
-			// Fallback to local
-			this.messages = [
-				...this.messages,
-				{
-					id: crypto.randomUUID(),
-					sender: 'me',
-					text: text.trim(),
-					timestamp: new Date()
-				}
-			];
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(data.error ?? 'Message failed to send');
+			if (!data.message) throw new Error('Message failed to send');
+
+			const persisted: ChatMessage = {
+				id: data.message.id,
+				sender: 'me',
+				text: data.message.text,
+				timestamp: new Date(data.message.created_at)
+			};
+			this.messages = this.messages.map((message) =>
+				message.id === optimistic.id ? persisted : message
+			);
+		} catch (err) {
+			this.error = err instanceof Error ? err.message : 'Message failed to send';
+			this.messages = this.messages.filter((message) => message.id !== optimistic.id);
 		}
 	}
 

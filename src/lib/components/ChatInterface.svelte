@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { queue } from '$lib/stores/queue.svelte';
 	import { subscribeToInserts } from '$lib/realtime';
+	import type { ChatMessage } from '$lib/types';
 	import EngagementPanel from '$lib/components/EngagementPanel.svelte';
 	import { tick } from 'svelte';
 
@@ -34,16 +35,25 @@
 			'chat_messages',
 			`match_id=eq.${matchId}`,
 			(row) => {
-				if (queue.messages.some((m) => m.id === row.id)) return;
-				queue.messages = [
-					...queue.messages,
-					{
-						id: row.id,
-						sender: row.sender_id === queue.user?.id ? 'me' : 'them',
-						text: row.text,
-						timestamp: new Date(row.created_at)
-					}
-				];
+				const persisted: ChatMessage = {
+					id: row.id,
+					sender: row.sender_id === queue.user?.id ? 'me' : 'them',
+					text: row.text,
+					timestamp: new Date(row.created_at)
+				};
+				const optimisticIndex = queue.messages.findIndex(
+					(message) =>
+						message.id.startsWith('pending-') &&
+						row.sender_id === queue.user?.id &&
+						message.text === row.text
+				);
+				if (optimisticIndex >= 0) {
+					queue.messages = queue.messages.map((message, index) =>
+						index === optimisticIndex ? persisted : message
+					);
+				} else if (!queue.messages.some((message) => message.id === row.id)) {
+					queue.messages = [...queue.messages, persisted];
+				}
 			}
 		);
 
@@ -105,6 +115,9 @@
 				</div>
 			</div>
 		{/each}
+		{#if queue.error}
+			<p class="message-error" role="alert">{queue.error}</p>
+		{/if}
 	</div>
 
 	<div class="chat-input">
@@ -283,6 +296,14 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.55rem;
+	}
+
+	.message-error {
+		color: #fca5a5;
+		font-size: 0.8rem;
+		padding: 0.5rem 0.7rem;
+		background: rgba(127, 29, 29, 0.25);
+		border-radius: 0.5rem;
 	}
 
 	.messages-container::-webkit-scrollbar {

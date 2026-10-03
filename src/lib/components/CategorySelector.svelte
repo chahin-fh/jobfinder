@@ -47,10 +47,14 @@
 			creating = false;
 		}
 	}
+
+	function goToStep(step: number) {
+		if (step === 1) queue.step = 'role';
+	}
 </script>
 
 <div class="category-selector">
-	<StepProgress active={2} />
+	<StepProgress active={2} onStepSelect={goToStep} />
 
 	<h2 class="title">
 		{queue.role === 'client' ? 'What do you need done?' : 'What can you do?'}

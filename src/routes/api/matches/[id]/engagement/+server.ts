@@ -73,7 +73,7 @@ export async function POST(event: RequestEvent) {
 					amount,
 					currency,
 					status: 'proposed',
-					created_by: (existing as any)?.created_by ?? user.id,
+					created_by: user.id,
 					agreed_by_client_at: null,
 					agreed_by_freelancer_at: null,
 					updated_at: new Date().toISOString()
@@ -85,6 +85,10 @@ export async function POST(event: RequestEvent) {
 
 		if (error) {
 			return json({ error: error.message }, { status: 500 });
+		}
+
+		if (match.status === 'confirmed') {
+			await supabase.from('matches').update({ status: 'chatting' }).eq('id', match.id);
 		}
 
 		return json({ engagement });

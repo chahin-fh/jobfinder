@@ -8,16 +8,8 @@
 	let inputText = $state('');
 	let messagesEl: HTMLDivElement | null = $state(null);
 	let showDetails = $state(false);
-	let detailsInitialised = $state(false);
 
 	const conversation = $derived(messages.activeConversation);
-
-	// Keep the terms open until the engagement has been agreed by both sides.
-	$effect(() => {
-		if (detailsInitialised || !conversation) return;
-		showDetails = conversation.status !== 'confirmed';
-		detailsInitialised = true;
-	});
 
 	function handleSend() {
 		if (!inputText.trim()) return;
@@ -94,18 +86,20 @@
 			</div>
 
 			<div class="header-actions">
-				<button
-					class="action-btn"
-					class:action-active={showDetails}
-					aria-label="Engagement terms"
-					onclick={() => (showDetails = !showDetails)}
-				>
-					📝
-				</button>
+				{#if conversation.status === 'confirmed'}
+					<button
+						class="action-btn"
+						class:action-active={showDetails}
+						aria-label="Engagement terms"
+						onclick={() => (showDetails = !showDetails)}
+					>
+						📝
+					</button>
+				{/if}
 			</div>
 		</div>
 
-		{#if showDetails}
+		{#if showDetails || conversation.status !== 'confirmed'}
 			<div class="details">
 				<EngagementPanel
 					matchId={conversation.id}
@@ -117,58 +111,66 @@
 			</div>
 		{/if}
 
-		<!-- Messages Area -->
-		<div class="messages-area" bind:this={messagesEl}>
-			{#each messages.messages as msg, i (msg.id)}
-				{#if shouldShowDate(i)}
-					<div class="date-divider">
-						<span class="date-label">{formatDay(msg.timestamp)}</span>
-					</div>
-				{/if}
-
-				<div class="message-row" class:sent={msg.isMe} class:received={!msg.isMe}>
-					{#if !msg.isMe}
-						<div class="msg-avatar">
-							{initials(conversation.participantName)}
+		{#if conversation.status === 'confirmed'}
+			<!-- Messages Area -->
+			<div class="messages-area" bind:this={messagesEl}>
+				{#each messages.messages as msg, i (msg.id)}
+					{#if shouldShowDate(i)}
+						<div class="date-divider">
+							<span class="date-label">{formatDay(msg.timestamp)}</span>
 						</div>
 					{/if}
 
-					<div class="msg-content">
-						<div class="msg-bubble" class:sent-bubble={msg.isMe} class:received-bubble={!msg.isMe}>
-							<p class="msg-text">{msg.text}</p>
+					<div class="message-row" class:sent={msg.isMe} class:received={!msg.isMe}>
+						{#if !msg.isMe}
+							<div class="msg-avatar">
+								{initials(conversation.participantName)}
+							</div>
+						{/if}
+
+						<div class="msg-content">
+							<div class="msg-bubble" class:sent-bubble={msg.isMe} class:received-bubble={!msg.isMe}>
+								<p class="msg-text">{msg.text}</p>
+							</div>
+							<span class="msg-time" class:time-sent={msg.isMe}>{formatTime(msg.timestamp)}</span>
 						</div>
-						<span class="msg-time" class:time-sent={msg.isMe}>{formatTime(msg.timestamp)}</span>
 					</div>
-				</div>
-			{/each}
-
-		</div>
-
-		<!-- Input Area -->
-		<div class="chat-input-area">
-			<button class="input-action-btn" aria-label="Attach file">📎</button>
-			<button class="input-action-btn" aria-label="Send photo">🖼️</button>
-
-			<div class="input-wrap">
-				<input
-					type="text"
-					class="message-input"
-					placeholder="Aa"
-					bind:value={inputText}
-					onkeydown={handleKeydown}
-					aria-label="Type a message"
-				/>
-				<button class="emoji-btn" aria-label="Emoji">😊</button>
+				{/each}
+				{#if messages.error}
+					<p class="message-error" role="alert">{messages.error}</p>
+				{/if}
 			</div>
 
-			{#if inputText.trim()}
-				<button class="send-btn" onclick={handleSend} aria-label="Send message">
-					<span class="send-icon">➤</span>
-				</button>
-			{:else}
-				<button class="input-action-btn" aria-label="Like">👍</button>
-			{/if}
-		</div>
+			<!-- Input Area -->
+			<div class="chat-input-area">
+				<button class="input-action-btn" aria-label="Attach file">📎</button>
+				<button class="input-action-btn" aria-label="Send photo">🖼️</button>
+
+				<div class="input-wrap">
+					<input
+						type="text"
+						class="message-input"
+						placeholder="Aa"
+						bind:value={inputText}
+						onkeydown={handleKeydown}
+						aria-label="Type a message"
+					/>
+					<button class="emoji-btn" aria-label="Emoji">😊</button>
+				</div>
+
+				{#if inputText.trim()}
+					<button class="send-btn" onclick={handleSend} aria-label="Send message">
+						<span class="send-icon">➤</span>
+					</button>
+				{:else}
+					<button class="input-action-btn" aria-label="Like">👍</button>
+				{/if}
+			</div>
+		{:else}
+			<div class="pending-chat">
+				<p>Chat opens here after both sides agree to the terms.</p>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<div class="no-conversation">
@@ -341,6 +343,14 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.3rem;
+	}
+
+	.message-error {
+		color: #fca5a5;
+		font-size: 0.8rem;
+		padding: 0.5rem 0.7rem;
+		background: rgba(127, 29, 29, 0.25);
+		border-radius: 0.5rem;
 	}
 
 	.messages-area::-webkit-scrollbar {

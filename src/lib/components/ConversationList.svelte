@@ -3,6 +3,9 @@
 	import { initials } from '$lib/utils';
 
 	let searchInput = $state('');
+	const conversations = $derived(
+		messages.filteredConversations.filter((conversation) => conversation.status === 'confirmed')
+	);
 
 	function handleSearch() {
 		messages.setSearch(searchInput);
@@ -34,14 +37,14 @@
 				<div class="loading-spinner"></div>
 				<span>Loading conversations...</span>
 			</div>
-		{:else if messages.filteredConversations.length === 0}
+		{:else if conversations.length === 0}
 			<div class="empty-state">
 				<span class="empty-icon">💬</span>
-				<p class="empty-text">No conversations yet</p>
-				<p class="empty-sub">Start a match to begin chatting</p>
+				<p class="empty-text">No agreed chats yet</p>
+				<p class="empty-sub">A chat opens after both sides agree to the terms</p>
 			</div>
 		{:else}
-			{#each messages.filteredConversations as conv (conv.id)}
+			{#each conversations as conv (conv.id)}
 				<button
 					class="conversation-item"
 					class:active={messages.activeConversationId === conv.id}
